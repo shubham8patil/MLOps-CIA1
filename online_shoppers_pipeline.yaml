@@ -1,0 +1,255 @@
+# PIPELINE DEFINITION
+# Name: online-shoppers-purchase-pipeline
+# Description: ML pipeline for Online Shoppers Purchasing Intention prediction
+# Inputs:
+#    dataset_path: str [Default: 'data/online_shoppers_intention.csv']
+components:
+  comp-evaluate-model:
+    executorLabel: exec-evaluate-model
+    inputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+        processed_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        metrics:
+          artifactType:
+            schemaTitle: system.Metrics
+            schemaVersion: 0.0.1
+  comp-preprocess-data:
+    executorLabel: exec-preprocess-data
+    inputDefinitions:
+      parameters:
+        dataset_path:
+          parameterType: STRING
+    outputDefinitions:
+      artifacts:
+        processed_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      artifacts:
+        processed_data:
+          artifactType:
+            schemaTitle: system.Dataset
+            schemaVersion: 0.0.1
+    outputDefinitions:
+      artifacts:
+        model:
+          artifactType:
+            schemaTitle: system.Model
+            schemaVersion: 0.0.1
+deploymentSpec:
+  executors:
+    exec-evaluate-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - evaluate_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy' 'scikit-learn'\
+          \ 'joblib'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef evaluate_model(\n    processed_data: dsl.Input[Dataset],\n  \
+          \  model: dsl.Input[Model],\n    metrics: dsl.Output[Metrics]\n):\n    import\
+          \ numpy as np\n    import joblib\n\n    from sklearn.metrics import (\n\
+          \        accuracy_score,\n        precision_score,\n        recall_score,\n\
+          \        f1_score\n    )\n\n    # Load processed data\n    data = np.load(processed_data.path)\n\
+          \n    X_test = data[\"X_test\"]\n    y_test = data[\"y_test\"]\n\n    #\
+          \ Load model\n    clf = joblib.load(model.path)\n\n    # Predictions\n \
+          \   y_pred = clf.predict(X_test)\n\n    # Calculate metrics\n    accuracy\
+          \ = accuracy_score(y_test, y_pred)\n    precision = precision_score(y_test,\
+          \ y_pred, zero_division=0)\n    recall = recall_score(y_test, y_pred, zero_division=0)\n\
+          \    f1 = f1_score(y_test, y_pred, zero_division=0)\n\n    # Log metrics\
+          \ to Kubeflow\n    metrics.log_metric(\"accuracy\", accuracy)\n    metrics.log_metric(\"\
+          precision\", precision)\n    metrics.log_metric(\"recall\", recall)\n  \
+          \  metrics.log_metric(\"f1_score\", f1)\n\n    print(\"Model Evaluation\"\
+          )\n    print(\"----------------\")\n    print(\"Accuracy :\", accuracy)\n\
+          \    print(\"Precision:\", precision)\n    print(\"Recall   :\", recall)\n\
+          \    print(\"F1 Score :\", f1)\n\n"
+        image: python:3.11
+    exec-preprocess-data:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - preprocess_data
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'pandas' 'numpy'\
+          \ 'scikit-learn'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef preprocess_data(\n    dataset_path: str,\n    processed_data:\
+          \ dsl.Output[Dataset]\n):\n    import pandas as pd\n    import numpy as\
+          \ np\n\n    from sklearn.model_selection import train_test_split\n    from\
+          \ sklearn.preprocessing import StandardScaler, OneHotEncoder\n    from sklearn.compose\
+          \ import ColumnTransformer\n\n    # Load dataset\n    df = pd.read_csv(dataset_path)\n\
+          \n    # Remove duplicate records\n    df = df.drop_duplicates().reset_index(drop=True)\n\
+          \n    # Separate features and target\n    X = df.drop(\"Revenue\", axis=1)\n\
+          \    y = df[\"Revenue\"].astype(int)\n\n    # Numerical features\n    numerical_features\
+          \ = [\n        \"Administrative\",\n        \"Administrative_Duration\"\
+          ,\n        \"Informational\",\n        \"Informational_Duration\",\n   \
+          \     \"ProductRelated\",\n        \"ProductRelated_Duration\",\n      \
+          \  \"BounceRates\",\n        \"ExitRates\",\n        \"PageValues\",\n \
+          \       \"SpecialDay\",\n        \"OperatingSystems\",\n        \"Browser\"\
+          ,\n        \"Region\",\n        \"TrafficType\"\n    ]\n\n    # Categorical\
+          \ features\n    categorical_features = [\n        \"Month\",\n        \"\
+          VisitorType\",\n        \"Weekend\"\n    ]\n\n    # Preprocessing\n    preprocessor\
+          \ = ColumnTransformer(\n        transformers=[\n            (\n        \
+          \        \"num\",\n                StandardScaler(),\n                numerical_features\n\
+          \            ),\n            (\n                \"cat\",\n             \
+          \   OneHotEncoder(\n                    handle_unknown=\"ignore\",\n   \
+          \                 sparse_output=False\n                ),\n            \
+          \    categorical_features\n            )\n        ]\n    )\n\n    # Train-test\
+          \ split\n    X_train, X_test, y_train, y_test = train_test_split(\n    \
+          \    X,\n        y,\n        test_size=0.20,\n        random_state=42,\n\
+          \        stratify=y\n    )\n\n    # Fit only on training data\n    X_train_processed\
+          \ = preprocessor.fit_transform(X_train)\n    X_test_processed = preprocessor.transform(X_test)\n\
+          \n    # Save processed data\n    np.savez(\n        processed_data.path,\n\
+          \        X_train=X_train_processed,\n        X_test=X_test_processed,\n\
+          \        y_train=y_train.to_numpy(),\n        y_test=y_test.to_numpy()\n\
+          \    )\n\n    print(\"Preprocessing completed.\")\n    print(\"Training\
+          \ samples:\", X_train_processed.shape[0])\n    print(\"Testing samples:\"\
+          , X_test_processed.shape[0])\n    print(\"Processed features:\", X_train_processed.shape[1])\n\
+          \n"
+        image: python:3.11
+    exec-train-model:
+      container:
+        args:
+        - --executor_input
+        - '{{$}}'
+        - --function_to_execute
+        - train_model
+        command:
+        - sh
+        - -c
+        - "\nif ! [ -x \"$(command -v pip)\" ]; then\n    python3 -m ensurepip ||\
+          \ python3 -m ensurepip --user || apt-get install python3-pip\nfi\n\nPIP_DISABLE_PIP_VERSION_CHECK=1\
+          \ python3 -m pip install --quiet --no-warn-script-location 'numpy' 'scikit-learn'\
+          \ 'joblib'  &&  python3 -m pip install --quiet --no-warn-script-location\
+          \ 'kfp==2.17.0' '--no-deps' 'typing-extensions>=3.7.4,<5; python_version<\"\
+          3.9\"' && \"$0\" \"$@\"\n"
+        - sh
+        - -ec
+        - 'program_path=$(mktemp -d)
+
+
+          printf "%s" "$0" > "$program_path/ephemeral_component.py"
+
+          _KFP_RUNTIME=true python3 -m kfp.dsl.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+
+          '
+        - "\nimport kfp\nfrom kfp import dsl\nfrom kfp.dsl import *\nfrom typing import\
+          \ *\n\ndef train_model(\n    processed_data: dsl.Input[Dataset],\n    model:\
+          \ dsl.Output[Model]\n):\n    import numpy as np\n    import joblib\n\n \
+          \   from sklearn.ensemble import RandomForestClassifier\n\n    # Load processed\
+          \ data\n    data = np.load(processed_data.path)\n\n    X_train = data[\"\
+          X_train\"]\n    y_train = data[\"y_train\"]\n\n    # Create model\n    clf\
+          \ = RandomForestClassifier(\n        n_estimators=100,\n        random_state=42\n\
+          \    )\n\n    # Train\n    clf.fit(X_train, y_train)\n\n    # Save model\n\
+          \    joblib.dump(clf, model.path)\n\n    print(\"Random Forest training\
+          \ completed.\")\n    print(\"Number of trees:\", 100)\n\n"
+        image: python:3.11
+pipelineInfo:
+  description: ML pipeline for Online Shoppers Purchasing Intention prediction
+  name: online-shoppers-purchase-pipeline
+root:
+  dag:
+    tasks:
+      evaluate-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-evaluate-model
+        dependentTasks:
+        - preprocess-data
+        - train-model
+        inputs:
+          artifacts:
+            model:
+              taskOutputArtifact:
+                outputArtifactKey: model
+                producerTask: train-model
+            processed_data:
+              taskOutputArtifact:
+                outputArtifactKey: processed_data
+                producerTask: preprocess-data
+        taskInfo:
+          name: evaluate-model
+      preprocess-data:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-preprocess-data
+        inputs:
+          parameters:
+            dataset_path:
+              componentInputParameter: dataset_path
+        taskInfo:
+          name: preprocess-data
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - preprocess-data
+        inputs:
+          artifacts:
+            processed_data:
+              taskOutputArtifact:
+                outputArtifactKey: processed_data
+                producerTask: preprocess-data
+        taskInfo:
+          name: train-model
+  inputDefinitions:
+    parameters:
+      dataset_path:
+        defaultValue: data/online_shoppers_intention.csv
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.17.0
